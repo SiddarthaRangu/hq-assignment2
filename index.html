@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Interface</title>
+  <style>
+    /* Add your styles here */
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid #dddddd;
+      text-align: left;
+      padding: 8px;
+    }
+
+    th {
+      background-color: #f2f2f2;
+    }
+
+    .selected-row {
+      background-color: #d3d3d3;
+    }
+
+    /* Hide the Save button initially */
+    .save {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div>
+    <input type="text" id="searchInput" placeholder="Search...">
+    <button onclick="search()" class="search-icon">Search</button>
+  </div>
+
+  <table id="userTable">
+    <!-- Table headers -->
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="selectAll" onclick="selectAll()"></th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <!-- Table body -->
+    <tbody></tbody>
+  </table>
+
+  <div>
+    <button class="first-page" onclick="navigateToPage(1)">First Page</button>
+    <button class="previous-page" onclick="navigateToPage(currentPage - 1)">Previous Page</button>
+    <span>Page <span id="currentPage">1</span> of <span id="totalPages">1</span></span>
+    <button class="next-page" onclick="navigateToPage(currentPage + 1)">Next Page</button>
+    <button class="last-page" onclick="navigateToPage(totalPages)">Last Page</button>
+  </div>
+
+  <button onclick="deleteSelected()" class="bin-icon">Delete Selected</button>
+
+  <script>
+    let users = []; // Global variable to store users
+    let currentPage = 1;
+    const pageSize = 10;
+    let totalPages = 1;
+
+    // Fetch data from the API endpoint
+    fetch('https://geektrust.s3-ap-southeast-1.amazonaws.com/adminui-problem/members.json')
+      .then(response => response.json())
+      .then(data => {
+        users = data;
+        totalPages = Math.ceil(users.length / pageSize);
+        renderTable();
+      })
+      .catch(error => console.error('Error fetching data:', error));
+
+    // Function to render the table
+    function renderTable() {
+      const tbody = document.querySelector('#userTable tbody');
+      tbody.innerHTML = '';
+
+      const startIndex = (currentPage - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+
+      for (let i = startIndex; i < endIndex && i < users.length; i++) {
+        const user = users[i];
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="checkbox" onclick="selectRow(${i})"></td>
+          <td>${user.name}</td>
+          <td>${user.email}</td>
+          <td>${user.role}</td>
+          <td>
+            <button class="edit" onclick="editRow(${i})">Edit</button>
+            <button class="delete" onclick="deleteRow(${i})">Delete</button>
+            <button class="save" onclick="saveRow(${i})">Save</button>
+          </td>
+        `;
+
+        tbody.appendChild(tr);
+      }
+
+      document.getElementById('currentPage').innerText = currentPage;
+      document.getElementById('totalPages').innerText = totalPages;
+    }
+
+    function navigateToPage(page) {
+      if (page >= 1 && page <= totalPages) {
+        currentPage = page;
+        renderTable();
+      }
+    }
+
+    function selectAll() {
+      const checkboxes = document.querySelectorAll('#userTable tbody input[type="checkbox"]');
+      const selectAllCheckbox = document.getElementById('selectAll');
+
+      checkboxes.forEach((checkbox, index) => {
+        const userIndex = (currentPage - 1) * pageSize + index;
+        const tr = document.querySelector(`#userTable tbody tr:nth-child(${index % pageSize + 1})`);
+
+        if (userIndex < users.length) {
+          checkbox.checked = selectAllCheckbox.checked;
+
+          if (checkbox.checked) {
+            tr.classList.add('selected-row');
+          } else {
+            tr.classList.remove('selected-row');
+          }
+        } else {
+          console.error(`Invalid userIndex: ${userIndex}`);
+        }
+      });
+
+      // Update "Select All" checkbox
+      const allChecked = Array.from(checkboxes).every(checkbox => checkbox.checked);
+      selectAllCheckbox.checked = allChecked;
+    }
+
+    function deleteRow(index) {
+      const userIdToDelete = users[(currentPage - 1) * pageSize + index].id;
+
+      // Check if the row is in edit mode, if yes, cancel the edit mode
+      const tr = document.querySelector(`#userTable tbody tr:nth-child(${index % pageSize + 1})`);
+      const isEditing = tr.querySelector('.save').style.display === 'inline-block';
+
+      if (isEditing) {
+        // Cancel edit mode and render the table without saving changes
+        renderTable();
+        return;
+      }
+
+      // Remove the user with the corresponding ID
+      users = users.filter(user => user.id !== userIdToDelete);
+
+      if (users.length % pageSize === 0 && currentPage > 1) {
+        currentPage--;
+      }
+
+      totalPages = Math.ceil(users.length / pageSize);
+      renderTable();
+    }
+
+    function editRow(index) {
+      const tr = document.querySelector(`#userTable tbody tr:nth-child(${(currentPage - 1) * pageSize + index % pageSize + 1})`);
+      const tds = tr.querySelectorAll('td:not(:first-child):not(:last-child)');
+
+      tds.forEach((td, columnIndex) => {
+        const input = document.createElement('input');
+        const cellContent = td.innerText.trim();
+        input.value = cellContent;
+
+        // For "Name", "Email", and "Role" columns, add a class to identify it during saving
+        if (columnIndex === 1 || columnIndex === 2 || columnIndex === 3) {
+          input.classList.add('editable-input');
+        }
+
+        td.innerHTML = '';
+        td.appendChild(input);
+      });
+
+      // Toggle visibility of action buttons and Save button
+      tr.querySelector('.edit').style.display = 'none';
+      tr.querySelector('.delete').style.display = 'none';
+      const saveButton = tr.querySelector('.save');
+      saveButton.style.display = 'inline-block';
+
+      // Add an event listener to the save button for saving changes
+      saveButton.addEventListener('click', function () {
+        saveRow(index);
+      });
+    }
+
+    function saveRow(index) {
+      const tr = document.querySelector(`#userTable tbody tr:nth-child(${(currentPage - 1) * pageSize + index % pageSize + 1})`);
+      const tds = tr.querySelectorAll('td:not(:first-child):not(:last-child)');
+
+      tds.forEach((td, columnIndex) => {
+        const input = td.querySelector('input');
+
+        if (input) {
+          if (columnIndex === 1 || columnIndex === 2 || columnIndex === 3) {
+            // For "Name", "Email", and "Role" columns, set the inner text directly
+            td.innerText = input.value;
+          } else {
+            // For other columns, create a new input field
+            td.innerHTML = `<input type="text" value="${input.value}">`;
+          }
+        }
+      });
+
+      // Toggle visibility of action buttons and Save button after saving changes
+      tr.querySelector('.edit').style.display = 'inline-block';
+      tr.querySelector('.delete').style.display = 'inline-block';
+      tr.querySelector('.save').style.display = 'none';
+    }
+
+    function search() {
+      const searchInput = document.getElementById('searchInput');
+      const searchTerm = searchInput.value.toLowerCase();
+
+      // Use the 'users' array instead of 'data'
+      users = users.filter(user =>
+        Object.values(user).some(value => value.toLowerCase().includes(searchTerm))
+      );
+
+      currentPage = 1;
+      totalPages = Math.ceil(users.length / pageSize);
+      renderTable();
+    }
+
+    function selectRow(index) {
+      const tr = document.querySelector(`#userTable tbody tr:nth-child(${index % pageSize + 1})`);
+      tr.classList.toggle('selected-row');
+    }
+
+    function deleteSelected() {
+      const selectedRows = document.querySelectorAll('#userTable tbody .selected-row');
+      const selectedUserIds = Array.from(selectedRows).map(row => {
+        const index = Array.from(row.parentNode.children).indexOf(row);
+        return users[(currentPage - 1) * pageSize + index % pageSize].id;
+      });
+
+      // Remove selected users
+      users = users.filter(user => !selectedUserIds.includes(user.id));
+
+      if (users.length % pageSize === 0 && currentPage > 1) {
+        currentPage--;
+      }
+
+      totalPages = Math.ceil(users.length / pageSize);
+      renderTable();
+    }
+  </script>
+
+</body>
+
+</html>
